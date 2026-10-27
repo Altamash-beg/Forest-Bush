@@ -19,6 +19,8 @@ describe('API analyzer failure handling', () => {
 
     const originalUserProfile = process.env.USERPROFILE;
     const originalHome = process.env.HOME;
+    const originalOasdiffPath = process.env.OASDIFF_PATH;
+
     const tempHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'analyzer-missing-executable-')
     );
@@ -26,6 +28,7 @@ describe('API analyzer failure handling', () => {
     try {
       process.env.USERPROFILE = tempHome;
       process.env.HOME = tempHome;
+      delete process.env.OASDIFF_PATH;
 
       app.use(
         '/admin/analyze',
@@ -56,6 +59,12 @@ describe('API analyzer failure handling', () => {
         delete process.env.HOME;
       } else {
         process.env.HOME = originalHome;
+      }
+
+      if (originalOasdiffPath === undefined) {
+        delete process.env.OASDIFF_PATH;
+      } else {
+        process.env.OASDIFF_PATH = originalOasdiffPath;
       }
 
       fs.rmSync(tempHome, { recursive: true, force: true });

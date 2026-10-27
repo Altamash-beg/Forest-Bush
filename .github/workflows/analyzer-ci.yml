@@ -1,4 +1,4 @@
-﻿name: API Analyzer CI
+name: API Analyzer CI
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
       - "api/src/middleware/auth.js"
       - "api/test/analyzer/**"
       - "api/test/auth.test.js"
+      - "api/test/flags.test.js"
       - "api/package.json"
       - "api/package-lock.json"
       - "api/openapi.yaml"
@@ -21,6 +22,7 @@ on:
       - "api/src/middleware/auth.js"
       - "api/test/analyzer/**"
       - "api/test/auth.test.js"
+      - "api/test/flags.test.js"
       - "api/package.json"
       - "api/package-lock.json"
       - "api/openapi.yaml"
@@ -30,6 +32,21 @@ jobs:
   analyzer-tests:
     name: Run API analyzer tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: forest_bush_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d forest_bush_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -54,7 +71,7 @@ jobs:
           OASDIFF_BIN="$(find "$RUNNER_TEMP/oasdiff" -type f -name oasdiff -print -quit)"
           test -n "$OASDIFF_BIN"
           chmod +x "$OASDIFF_BIN"
-          echo "OASDIFF_PATH=$OASDIFF_BIN" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
 
       - name: Install API dependencies
         working-directory: ./api
@@ -62,6 +79,8 @@ jobs:
 
       - name: Run API tests
         working-directory: ./api
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/forest_bush_test?schema=public
         run: npm test
 
   contract-check:
