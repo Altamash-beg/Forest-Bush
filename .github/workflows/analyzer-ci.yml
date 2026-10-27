@@ -72,6 +72,7 @@ jobs:
           test -n "$OASDIFF_BIN"
           chmod +x "$OASDIFF_BIN"
           echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
+          echo "OASDIFF_PATH=$OASDIFF_BIN" >> "$GITHUB_ENV"
 
       - name: Install API dependencies
         working-directory: ./api
