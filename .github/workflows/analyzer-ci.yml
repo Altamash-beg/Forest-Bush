@@ -1,0 +1,118 @@
+﻿name: API Analyzer CI
+
+on:
+  push:
+    paths:
+      - "api/src/analyzer/**"
+      - "api/src/routes/analyzeApi.js"
+      - "api/src/app.js"
+      - "api/src/middleware/auth.js"
+      - "api/test/analyzer/**"
+      - "api/test/auth.test.js"
+      - "api/package.json"
+      - "api/package-lock.json"
+      - "api/openapi.yaml"
+      - ".github/workflows/analyzer-ci.yml"
+  pull_request:
+    paths:
+      - "api/src/analyzer/**"
+      - "api/src/routes/analyzeApi.js"
+      - "api/src/app.js"
+      - "api/src/middleware/auth.js"
+      - "api/test/analyzer/**"
+      - "api/test/auth.test.js"
+      - "api/package.json"
+      - "api/package-lock.json"
+      - "api/openapi.yaml"
+      - ".github/workflows/analyzer-ci.yml"
+
+jobs:
+  analyzer-tests:
+    name: Run API analyzer tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install oasdiff
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.34.1/oasdiff_1.34.1_linux_amd64.tar.gz \
+            -o /tmp/oasdiff.tar.gz
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf /tmp/oasdiff.tar.gz -C "$RUNNER_TEMP/oasdiff"
+          OASDIFF_BIN="$(find "$RUNNER_TEMP/oasdiff" -type f -name oasdiff -print -quit)"
+          test -n "$OASDIFF_BIN"
+          chmod +x "$OASDIFF_BIN"
+          echo "OASDIFF_PATH=$OASDIFF_BIN" >> "$GITHUB_ENV"
+
+      - name: Install API dependencies
+        working-directory: ./api
+        run: npm ci
+
+      - name: Run API tests
+        working-directory: ./api
+        run: npm test
+
+  contract-check:
+    name: Check API contract for breaking changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout pull request and base history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up base OpenAPI contract
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "$BASE_SHA:api/openapi.yaml" 2>/dev/null; then
+            git show "$BASE_SHA:api/openapi.yaml" > "$RUNNER_TEMP/openapi-base.yaml"
+            echo "BASE_SPEC_EXISTS=true" >> "$GITHUB_ENV"
+          else
+            echo "BASE_SPEC_EXISTS=false" >> "$GITHUB_ENV"
+            echo "No OpenAPI contract exists on the base branch yet; comparison will be skipped."
+          fi
+
+      - name: Install oasdiff
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.34.1/oasdiff_1.34.1_linux_amd64.tar.gz \
+            -o /tmp/oasdiff.tar.gz
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf /tmp/oasdiff.tar.gz -C "$RUNNER_TEMP/oasdiff"
+          OASDIFF_BIN="$(find "$RUNNER_TEMP/oasdiff" -type f -name oasdiff -print -quit)"
+          test -n "$OASDIFF_BIN"
+          chmod +x "$OASDIFF_BIN"
+          echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
+          echo "OASDIFF_BIN=$OASDIFF_BIN" >> "$GITHUB_ENV"
+
+      - name: Validate pull request contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$OASDIFF_BIN" validate api/openapi.yaml
+
+      - name: Block breaking API changes
+        if: env.BASE_SPEC_EXISTS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$OASDIFF_BIN" breaking --fail-on ERR "$RUNNER_TEMP/openapi-base.yaml" api/openapi.yaml

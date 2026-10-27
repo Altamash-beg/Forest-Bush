@@ -1,0 +1,381 @@
+﻿openapi: 3.0.3
+info:
+  title: Forest-Bush Admin API
+  version: 1.0.0
+  description: Admin API for managing feature flags and verifying admin API keys.
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+security:
+  - ApiKeyAuth: []
+paths:
+  /admin/verify-key:
+    get:
+      summary: Verify the admin API key
+      responses:
+        '200':
+          description: API key is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid:
+                    type: boolean
+                    enum: [true]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: API key verification is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/flags:
+    get:
+      summary: List feature flags
+      parameters:
+        - $ref: '#/components/parameters/Environment'
+      responses:
+        '200':
+          description: Feature flags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeatureFlag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      summary: Create a feature flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeatureFlag'
+      responses:
+        '201':
+          description: Feature flag created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A flag with this key and environment already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/flags/{key}:
+    parameters:
+      - $ref: '#/components/parameters/FlagKey'
+      - $ref: '#/components/parameters/Environment'
+    get:
+      summary: Get a feature flag
+      responses:
+        '200':
+          description: Feature flag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      summary: Update a feature flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeatureFlag'
+      responses:
+        '200':
+          description: Feature flag updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeatureFlag'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      summary: Delete a feature flag
+      responses:
+        '204':
+          description: Feature flag deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/flags/{key}/audit:
+    parameters:
+      - $ref: '#/components/parameters/FlagKey'
+      - $ref: '#/components/parameters/Environment'
+      - name: limit
+        in: query
+        required: false
+        description: Maximum number of audit events to return; defaults to 50 and is capped at 100.
+        schema:
+          type: integer
+          minimum: 1
+          default: 50
+          maximum: 100
+    get:
+      summary: Get recent audit events for a feature flag
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  parameters:
+    Environment:
+      name: environment
+      in: query
+      required: false
+      description: Target environment; defaults to production.
+      schema:
+        type: string
+        enum: [development, staging, production]
+        default: production
+    FlagKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 100
+        pattern: '^[a-zA-Z0-9_.-]+$'
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Unauthorized'
+    Forbidden:
+      description: Access forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Forbidden'
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BadRequest'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotFound'
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ServerError'
+  schemas:
+    FeatureFlag:
+      type: object
+      required: [id, key, environment, enabled, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          minLength: 3
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9_.-]+$'
+        environment:
+          type: string
+          enum: [development, staging, production]
+        description:
+          type: string
+          nullable: true
+          maxLength: 255
+        enabled:
+          type: boolean
+        rules:
+          type: object
+          nullable: true
+          properties:
+            rolloutPercentage:
+              type: number
+              minimum: 0
+              maximum: 100
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateFeatureFlag:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          minLength: 3
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9_.-]+$'
+        environment:
+          type: string
+          enum: [development, staging, production]
+          default: production
+        description:
+          type: string
+          maxLength: 255
+        enabled:
+          type: boolean
+          default: false
+        rules:
+          type: object
+          properties:
+            rolloutPercentage:
+              type: number
+              minimum: 0
+              maximum: 100
+          additionalProperties: true
+    UpdateFeatureFlag:
+      type: object
+      minProperties: 1
+      properties:
+        description:
+          type: string
+          maxLength: 255
+        enabled:
+          type: boolean
+        rules:
+          type: object
+          nullable: true
+          properties:
+            rolloutPercentage:
+              type: number
+              minimum: 0
+              maximum: 100
+          additionalProperties: true
+    AuditEvent:
+      type: object
+      required: [id, flagKey, environment, action, actor, createdAt]
+      properties:
+        id:
+          type: string
+        flagKey:
+          type: string
+        environment:
+          type: string
+          enum: [development, staging, production]
+        action:
+          type: string
+        actor:
+          type: string
+        before:
+          type: object
+          nullable: true
+          additionalProperties: true
+        after:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        error:
+          type: string
+    Unauthorized:
+      type: object
+      properties:
+        error:
+          type: string
+    Forbidden:
+      type: object
+      properties:
+        error:
+          type: string
+    BadRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties: true
+    NotFound:
+      type: object
+      properties:
+        message:
+          type: string
+    ServerError:
+      type: object
+      properties:
+        message:
+          type: string
+

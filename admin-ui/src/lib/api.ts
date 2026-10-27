@@ -1,4 +1,3 @@
-// A simple API client to interact with the Forest Bush backend.
 
 export interface FeatureFlag {
   key: string;
@@ -52,13 +51,44 @@ export type FeatureFlagUpdate = {
   } | null;
 };
 
+// API Change Analyzer types
+
+export interface ApiChange {
+  ruleId: string;
+  severity: 'error' | 'warning' | 'info';
+  method: string;
+  path: string;
+  response: string;
+  property: string;
+  oldValue: string;
+  newValue: string;
+  statusCode: string;
+}
+
+export interface ApiAnalysisResult {
+  hasBreakingChanges: boolean;
+  releaseDecision: 'SAFE' | 'BLOCKED';
+  output: string;
+  report: {
+    summary: {
+      totalChanges: number;
+      errors: number;
+      warnings: number;
+      infos: number;
+    };
+    changes: ApiChange[];
+  };
+}
+
 export const apiClient = {
   getApiUrl: () => {
-    // Use environment variable for production, fallback for development
+    // Use environment variable for production, fallback for development.
     return import.meta.env.VITE_API_URL || 'http://localhost:8080';
   },
 
-  getEnvironmentQuery: (environment: Environment = DEFAULT_ENVIRONMENT) => {
+  getEnvironmentQuery: (
+    environment: Environment = DEFAULT_ENVIRONMENT
+  ) => {
     return `?environment=${encodeURIComponent(environment)}`;
   },
 
@@ -69,13 +99,17 @@ export const apiClient = {
     };
   },
 
-  // Method to check if an API key is valid
+  // Verify the API key without querying the database.
   verifyApiKey: async (apiKey: string): Promise<boolean> => {
     try {
-      const response = await fetch(`${apiClient.getApiUrl()}/admin/flags`, {
-        method: 'GET',
-        headers: apiClient.getHeaders(apiKey),
-      });
+      const response = await fetch(
+        `${apiClient.getApiUrl()}/admin/verify-key`,
+        {
+          method: 'GET',
+          headers: apiClient.getHeaders(apiKey),
+        }
+      );
+
       return response.ok;
     } catch (error) {
       console.error('Failed to verify API key:', error);
@@ -83,83 +117,116 @@ export const apiClient = {
     }
   },
 
-  // Method to get all feature flags
-  getFlags: async (apiKey: string, environment: Environment = DEFAULT_ENVIRONMENT): Promise<FeatureFlag[]> => {
-    const response = await fetch(`${apiClient.getApiUrl()}/admin/flags${apiClient.getEnvironmentQuery(environment)}`, {
-      method: 'GET',
-      headers: apiClient.getHeaders(apiKey),
-    });
+  // Method to get all feature flags.
+  getFlags: async (
+    apiKey: string,
+    environment: Environment = DEFAULT_ENVIRONMENT
+  ): Promise<FeatureFlag[]> => {
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/admin/flags${apiClient.getEnvironmentQuery(environment)}`,
+      {
+        method: 'GET',
+        headers: apiClient.getHeaders(apiKey),
+      }
+    );
+
     if (!response.ok) {
       throw new Error('Failed to fetch flags.');
     }
+
     return response.json();
   },
 
-  // Method to update a feature flag (e.g., toggle it)
+  // Method to update a feature flag.
   updateFlag: async (
     apiKey: string,
     key: string,
     data: FeatureFlagUpdate,
     environment: Environment = DEFAULT_ENVIRONMENT
   ): Promise<FeatureFlag> => {
-    const response = await fetch(`${apiClient.getApiUrl()}/admin/flags/${key}${apiClient.getEnvironmentQuery(environment)}`, {
-      method: 'PUT',
-      headers: apiClient.getHeaders(apiKey),
-      body: JSON.stringify(data),
-    });
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/admin/flags/${key}${apiClient.getEnvironmentQuery(environment)}`,
+      {
+        method: 'PUT',
+        headers: apiClient.getHeaders(apiKey),
+        body: JSON.stringify(data),
+      }
+    );
+
     if (!response.ok) {
       throw new Error('Failed to update flag.');
     }
+
     return response.json();
   },
 
-  // Method to create a new feature flag
+  // Method to create a new feature flag.
   createFlag: async (
     apiKey: string,
-    data: { key: string; description: string; environment?: Environment }
+    data: {
+      key: string;
+      description: string;
+      environment?: Environment;
+    }
   ): Promise<FeatureFlag> => {
     const response = await fetch(`${apiClient.getApiUrl()}/admin/flags`, {
       method: 'POST',
       headers: apiClient.getHeaders(apiKey),
       body: JSON.stringify(data),
     });
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Failed to create flag.' }));
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: 'Failed to create flag.' }));
+
       throw new Error(errorData.message);
     }
+
     return response.json();
   },
 
-  // Method to delete a feature flag
+  // Method to delete a feature flag.
   deleteFlag: async (
     apiKey: string,
     key: string,
     environment: Environment = DEFAULT_ENVIRONMENT
   ): Promise<void> => {
-    const response = await fetch(`${apiClient.getApiUrl()}/admin/flags/${key}${apiClient.getEnvironmentQuery(environment)}`, {
-      method: 'DELETE',
-      headers: apiClient.getHeaders(apiKey),
-    });
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/admin/flags/${key}${apiClient.getEnvironmentQuery(environment)}`,
+      {
+        method: 'DELETE',
+        headers: apiClient.getHeaders(apiKey),
+      }
+    );
+
     if (!response.ok) {
       throw new Error('Failed to delete flag.');
     }
   },
 
+  // Method to get feature flag audit events.
   getFlagAudit: async (
     apiKey: string,
     key: string,
     environment: Environment = DEFAULT_ENVIRONMENT
   ): Promise<AuditEvent[]> => {
-    const response = await fetch(`${apiClient.getApiUrl()}/admin/flags/${key}/audit${apiClient.getEnvironmentQuery(environment)}`, {
-      method: 'GET',
-      headers: apiClient.getHeaders(apiKey),
-    });
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/admin/flags/${key}/audit${apiClient.getEnvironmentQuery(environment)}`,
+      {
+        method: 'GET',
+        headers: apiClient.getHeaders(apiKey),
+      }
+    );
+
     if (!response.ok) {
       throw new Error('Failed to fetch audit events.');
     }
+
     return response.json();
   },
 
+  // Method to evaluate a feature flag.
   evaluateFlag: async (
     key: string,
     environment: Environment = DEFAULT_ENVIRONMENT,
@@ -167,19 +234,58 @@ export const apiClient = {
     explain = false
   ): Promise<EvaluationResult> => {
     const searchParams = new URLSearchParams({ environment });
+
     if (userId) {
       searchParams.set('userId', userId);
     }
+
     if (explain) {
       searchParams.set('explain', 'true');
     }
 
-    const response = await fetch(`${apiClient.getApiUrl()}/flags/${key}?${searchParams.toString()}`, {
-      method: 'GET',
-    });
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/flags/${key}?${searchParams.toString()}`,
+      {
+        method: 'GET',
+      }
+    );
+
     if (!response.ok) {
       throw new Error('Failed to evaluate flag.');
     }
+
+    return response.json();
+  },
+
+  // Method to analyze two OpenAPI specifications.
+  analyzeApi: async (
+    apiKey: string,
+    oldSpec: Record<string, unknown>,
+    newSpec: Record<string, unknown>
+  ): Promise<ApiAnalysisResult> => {
+    const response = await fetch(
+      `${apiClient.getApiUrl()}/admin/analyze`,
+      {
+        method: 'POST',
+        headers: apiClient.getHeaders(apiKey),
+        body: JSON.stringify({
+          oldSpec,
+          newSpec,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({}));
+
+      throw new Error(
+        errorData.error ||
+          'Failed to analyze the OpenAPI specifications.'
+      );
+    }
+
     return response.json();
   },
 };

@@ -1,3 +1,4 @@
+
 const express = require('express');
 const morgan = require('morgan');
 const helmet = require('helmet');
@@ -5,6 +6,8 @@ const cors = require('cors');
 const crypto = require('crypto');
 
 const { createAdminFlagsRouter } = require('./routes/adminFlags');
+const { createAnalyzeApiRouter } = require('./routes/analyzeApi');
+const { createApiKeyAuth } = require('./middleware/auth');
 const { DEFAULT_ENVIRONMENT, parseEnvironment } = require('./schemas/flagSchemas');
 
 const getFlagVersion = async (redis, key, environment = DEFAULT_ENVIRONMENT, logger = console) => {
@@ -18,8 +21,6 @@ const getFlagVersion = async (redis, key, environment = DEFAULT_ENVIRONMENT, log
   }
 };
 
-// Environment-level version counter, bumped on any admin mutation so cached
-// snapshots invalidate. Mirrors getFlagVersion but scoped to the whole env.
 const getEnvironmentVersion = async (redis, environment, logger = console) => {
   if (redis?.disabled) return '0';
 
@@ -31,10 +32,6 @@ const getEnvironmentVersion = async (redis, environment, logger = console) => {
   }
 };
 
-// Builds a deterministic snapshot of every flag in an environment. The flag
-// list is projected and sorted by key so the checksum is stable across calls;
-// version is a short prefix of that checksum. generatedAt is informational and
-// does not affect the checksum.
 const buildSnapshot = (flags, environment) => {
   const projected = flags
     .map((flag) => ({ key: flag.key, enabled: flag.enabled, rules: flag.rules ?? null }))
@@ -51,8 +48,6 @@ const buildSnapshot = (flags, environment) => {
   };
 };
 
-// Evaluation reason taxonomy. The SDK mirrors these in sdk-js/src/index.ts;
-// keep the two in sync.
 const REASONS = {
   FLAG_NOT_FOUND: 'flag_not_found',
   DISABLED: 'disabled',
@@ -63,15 +58,11 @@ const REASONS = {
   ERROR: 'error',
 };
 
-// Stable 0-99 bucket for a flag/userId pair. Used for percentage rollouts; the
-// SDK replicates this hashing so local and remote evaluation agree.
 const rolloutBucket = (key, userId) => {
   const hash = crypto.createHash('sha256').update(`${key}:${userId}`).digest('hex');
   return parseInt(hash.substring(0, 8), 16) % 100;
 };
 
-// Returns { key, enabled, reason, trace }. The trace is always computed but only
-// surfaced by the handler when ?explain=true is requested.
 const evaluateFlag = ({ flag, key, userId, environment }) => {
   const trace = {
     environment: environment ?? null,
@@ -126,7 +117,7 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
   app.use(cors());
   app.use(helmet());
   app.use(morgan('dev'));
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
@@ -157,7 +148,11 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
         status: 'error',
         error: error.message,
         details: {
-          postgres: error.message.toLowerCase().includes('database') || error.message.toLowerCase().includes('prisma') ? 'error' : 'unknown',
+          postgres:
+            error.message.toLowerCase().includes('database') ||
+            error.message.toLowerCase().includes('prisma')
+              ? 'error'
+              : 'unknown',
           redis: error.message.toLowerCase().includes('redis') ? 'error' : 'unknown',
         },
       });
@@ -180,8 +175,6 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
       const version = await getFlagVersion(redis, key, environment, logger);
       const cacheKey = `flag:${environment}:${key}:v${version}:${userId || 'anonymous'}`;
 
-      // Explain is a low-volume admin/debug path. Bypass the cache so the hot
-      // path and its cached lean entries stay unchanged.
       if (!explain) {
         try {
           if (!redis?.disabled && redis.status === 'ready') {
@@ -194,6 +187,7 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
         } catch (cacheError) {
           logger.warn(`cache read failed for ${cacheKey}:`, cacheError.message);
         }
+
         logger.log(`[cache miss] for key: ${cacheKey}`);
       }
 
@@ -225,8 +219,6 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
     }
   });
 
-  // Returns a versioned snapshot of all flags in an environment so SDKs can
-  // evaluate locally instead of one HTTP request per flag.
   app.get('/environments/:envKey/snapshot', async (req, res) => {
     const environmentResult = parseEnvironment(req.params.envKey);
 
@@ -269,7 +261,27 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
     }
   });
 
+  // Admin API key verification that does not query PostgreSQL.
+  const verifyKeyRouter = express.Router();
+
+  if (!adminApiKey) {
+    verifyKeyRouter.get('/', (req, res) => {
+      return res.status(503).json({
+        error: 'API key verification is unavailable because ADMIN_API_KEY is not configured.',
+      });
+    });
+  } else {
+    verifyKeyRouter.get(
+      '/',
+      createApiKeyAuth({ adminApiKey, logger }),
+      (req, res) => res.status(200).json({ valid: true })
+    );
+  }
+
+  app.use('/admin/verify-key', verifyKeyRouter);
+
   app.use('/admin/flags', createAdminFlagsRouter({ prisma, redis, adminApiKey, logger }));
+  app.use('/admin/analyze', createAnalyzeApiRouter({ adminApiKey, logger }));
 
   return app;
 };

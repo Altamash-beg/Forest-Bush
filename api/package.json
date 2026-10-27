@@ -1,3 +1,4 @@
+
 {
   "name": "api",
   "version": "1.0.0",
@@ -5,8 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "node -r dotenv/config ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "node -r dotenv/config ./node_modules/vitest/vitest.mjs"
   },
   "keywords": [],
   "author": "",

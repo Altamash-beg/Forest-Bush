@@ -1,0 +1,49 @@
+
+const parseOasdiffOutput = (output = '') => {
+  const text = String(output);
+
+  const summaryMatch = text.match(
+    /(\d+)\s+changes:\s+(\d+)\s+error,\s+(\d+)\s+warning,\s+(\d+)\s+info/i
+  );
+
+  const changes = [];
+
+  // Accept either backticks or single quotes around values.
+  const changePattern =
+    /error\s+\[([^\]]+)\][^\n]*\n\s*in API\s+([A-Z]+)\s+(.+)\n\s*the\s+[`']([^`']+)[`']\s+response's property\s+[`']([^`']+)[`']\s+changed from\s+[`']([^`']+)[`']\s+to\s+[`']([^`']+)[`']\s+for status\s+[`']([^`']+)[`']/g;
+
+  let match;
+
+  while ((match = changePattern.exec(text)) !== null) {
+    changes.push({
+      ruleId: match[1],
+      severity: 'error',
+      method: match[2],
+      path: match[3].trim(),
+      response: match[4],
+      property: match[5],
+      oldValue: match[6],
+      newValue: match[7],
+      statusCode: match[8],
+    });
+  }
+
+  return {
+    summary: summaryMatch
+      ? {
+          totalChanges: Number(summaryMatch[1]),
+          errors: Number(summaryMatch[2]),
+          warnings: Number(summaryMatch[3]),
+          infos: Number(summaryMatch[4]),
+        }
+      : {
+          totalChanges: changes.length,
+          errors: changes.filter((change) => change.severity === 'error').length,
+          warnings: 0,
+          infos: 0,
+        },
+    changes,
+  };
+};
+
+module.exports = { parseOasdiffOutput };

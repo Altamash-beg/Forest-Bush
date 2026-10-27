@@ -151,3 +151,5 @@ override.tf.json
 notes.md
 ROADMAP.md
 AGENTS.md
+# Local backup files
+*.bak
