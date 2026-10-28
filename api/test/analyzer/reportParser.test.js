@@ -1,3 +1,4 @@
+
 const { parseOasdiffOutput } = require('../../src/analyzer/reportParser');
 
 describe('oasdiff report parser', () => {
@@ -42,5 +43,33 @@ describe('oasdiff report parser', () => {
       },
       changes: [],
     });
+  });
+
+  it('accepts the known safe oasdiff output', () => {
+    const output =
+      'No breaking changes to report, but the specs are different.\n' +
+      "Run 'oasdiff diff' to see structural differences.";
+
+    expect(parseOasdiffOutput(output)).toEqual({
+      summary: {
+        totalChanges: 0,
+        errors: 0,
+        warnings: 0,
+        infos: 0,
+      },
+      changes: [],
+    });
+  });
+
+  it('rejects non-empty output that does not match the expected format', () => {
+    expect(() =>
+      parseOasdiffOutput('Unexpected output from analyzer')
+    ).toThrow('Unrecognized oasdiff output format.');
+  });
+
+  it('rejects non-string output', () => {
+    expect(() => parseOasdiffOutput(null)).toThrow(
+      'oasdiff output must be a string.'
+    );
   });
 });

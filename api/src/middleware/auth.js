@@ -1,7 +1,16 @@
-const createApiKeyAuth = ({ adminApiKey = process.env.ADMIN_API_KEY, logger = console } = {}) => {
+
+const crypto = require('node:crypto');
+
+const createApiKeyAuth = ({
+  adminApiKey = process.env.ADMIN_API_KEY,
+  logger = console,
+} = {}) => {
   return (req, res, next) => {
     if (!adminApiKey) {
-      logger.error('ADMIN_API_KEY is not configured. Denying access to admin route.');
+      logger.error(
+        'ADMIN_API_KEY is not configured. Denying access to admin route.'
+      );
+
       return res.status(503).json({
         error: 'Admin route is unavailable because its API key is not configured.',
       });
@@ -15,7 +24,13 @@ const createApiKeyAuth = ({ adminApiKey = process.env.ADMIN_API_KEY, logger = co
       });
     }
 
-    if (receivedApiKey !== adminApiKey) {
+    const expectedBuffer = Buffer.from(adminApiKey, 'utf8');
+    const receivedBuffer = Buffer.from(receivedApiKey, 'utf8');
+
+    if (
+      expectedBuffer.length !== receivedBuffer.length ||
+      !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+    ) {
       return res.status(403).json({
         error: 'forbidden: invalid api key.',
       });

@@ -1,6 +1,22 @@
 
 const parseOasdiffOutput = (output = '') => {
-  const text = String(output);
+  if (typeof output !== 'string') {
+    throw new TypeError('oasdiff output must be a string.');
+  }
+
+  const text = output.trim();
+
+  if (!text) {
+    return {
+      summary: {
+        totalChanges: 0,
+        errors: 0,
+        warnings: 0,
+        infos: 0,
+      },
+      changes: [],
+    };
+  }
 
   const summaryMatch = text.match(
     /(\d+)\s+changes:\s+(\d+)\s+error,\s+(\d+)\s+warning,\s+(\d+)\s+info/i
@@ -8,7 +24,6 @@ const parseOasdiffOutput = (output = '') => {
 
   const changes = [];
 
-  // Accept either backticks or single quotes around values.
   const changePattern =
     /error\s+\[([^\]]+)\][^\n]*\n\s*in API\s+([A-Z]+)\s+(.+)\n\s*the\s+[`']([^`']+)[`']\s+response's property\s+[`']([^`']+)[`']\s+changed from\s+[`']([^`']+)[`']\s+to\s+[`']([^`']+)[`']\s+for status\s+[`']([^`']+)[`']/g;
 
@@ -28,6 +43,13 @@ const parseOasdiffOutput = (output = '') => {
     });
   }
 
+  const isSafeOutput =
+  /^No breaking changes to report(?:[,.]|$)/i.test(text);
+
+if (!summaryMatch && changes.length === 0 && !isSafeOutput) {
+  throw new Error('Unrecognized oasdiff output format.');
+}
+
   return {
     summary: summaryMatch
       ? {
@@ -38,7 +60,9 @@ const parseOasdiffOutput = (output = '') => {
         }
       : {
           totalChanges: changes.length,
-          errors: changes.filter((change) => change.severity === 'error').length,
+          errors: changes.filter(
+            (change) => change.severity === 'error'
+          ).length,
           warnings: 0,
           infos: 0,
         },

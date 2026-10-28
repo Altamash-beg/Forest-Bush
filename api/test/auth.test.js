@@ -75,4 +75,23 @@ describe('createApiKeyAuth', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
   });
+  it('returns 403 when the API key has a different length', async () => {
+    const app = express();
+
+    app.get(
+      '/admin',
+      createApiKeyAuth({
+        adminApiKey: 'test-admin-key',
+        logger: { error: vi.fn(), warn: vi.fn() },
+      }),
+      (req, res) => res.status(200).json({ success: true })
+    );
+
+    const response = await request(app)
+      .get('/admin')
+      .set('x-api-key', 'short');
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain('invalid api key');
+  });
 });
