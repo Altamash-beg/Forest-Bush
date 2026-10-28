@@ -253,6 +253,67 @@ Example create body:
   "rules": { "rolloutPercentage": 25 }
 }
 ```
+### API Change Impact Analyzer
+
+The API Change Impact Analyzer compares two OpenAPI specifications using `oasdiff` to identify potentially breaking API changes before release.
+
+**Endpoint:** `POST /admin/analyze`
+
+**Authentication:** Requires the `x-api-key` header with your configured `ADMIN_API_KEY`.
+
+**Request body:**
+
+```json
+{
+  "oldSpec": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Example API",
+      "version": "1.0.0"
+    },
+    "paths": {}
+  },
+  "newSpec": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Example API",
+      "version": "1.1.0"
+    },
+    "paths": {}
+  }
+}
+```
+
+Save the request body as `openapi-comparison.json`, then send it to the API:
+
+```bash
+curl -X POST http://localhost:8080/admin/analyze \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: YOUR_ADMIN_API_KEY" \
+  -d @openapi-comparison.json
+```
+
+**Release decisions:**
+
+- `SAFE` — no breaking changes were detected.
+- `BLOCKED` — breaking changes were detected.
+
+**Response fields:**
+
+- `hasBreakingChanges` — whether breaking changes were detected.
+- `releaseDecision` — `SAFE` or `BLOCKED`.
+- `output` — the raw `oasdiff` output.
+- `report` — a structured summary and detected changes.
+
+**Error handling:**
+
+- `400` — invalid OpenAPI request structure.
+- `401` — the API key is missing.
+- `403` — the API key is incorrect.
+- `500` — analysis failed; failure is not treated as a safe release.
+- `503` — the analyzer is unavailable because its API key is not configured.
+
+The analyzer CI workflow runs automated tests to help prevent regressions and keep analysis behavior reliable.
 
 </details>
 
