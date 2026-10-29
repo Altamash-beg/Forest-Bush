@@ -1,6 +1,7 @@
 {
   "name": "@forest-bush/sdk-js",
   "version": "0.1.0",
+  "type": "module",
   "description": "Official Javascript SDK for the Forest Bush feature flag service.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
