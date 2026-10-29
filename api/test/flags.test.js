@@ -236,6 +236,39 @@ describe('flag evaluation', () => {
     await request(app).get('/flags/any-flag?environment=qa').expect(400);
   });
 
+  // Malformed Redis JSON should fall back to PostgreSQL.
+  it('falls back to the database when the flag cache contains invalid JSON', async () => {
+    await prisma.featureFlag.create({
+      data: {
+        key: 'malformed-cache-flag',
+        enabled: true,
+        rules: {},
+      },
+    });
+
+    // Populate the cache with a valid evaluation result.
+    await request(app)
+      .get('/flags/malformed-cache-flag')
+      .expect(200);
+
+    // Replace the cached JSON with an invalid value.
+    await redis.set(
+      'flag:production:malformed-cache-flag:v0:anonymous',
+      '{invalid-json'
+    );
+
+    // The request should recover by reading the flag from PostgreSQL.
+    const response = await request(app)
+      .get('/flags/malformed-cache-flag')
+      .expect(200);
+
+    expect(response.body).toEqual({
+      key: 'malformed-cache-flag',
+      enabled: true,
+      reason: 'enabled_no_rules',
+    });
+  });
+
   it('uses versioned cache keys after an admin update', async () => {
     await prisma.featureFlag.create({
       data: {

@@ -34,6 +34,21 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install oasdiff
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.34.1/oasdiff_1.34.1_linux_amd64.tar.gz \
+            -o /tmp/oasdiff.tar.gz
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf /tmp/oasdiff.tar.gz -C "$RUNNER_TEMP/oasdiff"
+          OASDIFF_BIN="$(find "$RUNNER_TEMP/oasdiff" -type f -name oasdiff -print -quit)"
+          test -n "$OASDIFF_BIN"
+          chmod +x "$OASDIFF_BIN"
+          echo "$RUNNER_TEMP/oasdiff" >> "$GITHUB_PATH"
+          echo "OASDIFF_PATH=$OASDIFF_BIN" >> "$GITHUB_ENV"
+
       - name: Install API dependencies
         working-directory: ./api
         run: npm ci
@@ -60,10 +75,11 @@ jobs:
     name: Deploy API to Fly.io
     runs-on: ubuntu-latest
     needs: checks
-    
+
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-api
       cancel-in-progress: true
+
     defaults:
       run:
         working-directory: ./api
@@ -88,6 +104,7 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-admin-ui
       cancel-in-progress: true
+
     defaults:
       run:
         working-directory: ./admin-ui
