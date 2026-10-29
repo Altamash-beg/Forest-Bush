@@ -10,13 +10,18 @@ const { createAnalyzeApiRouter } = require('./routes/analyzeApi');
 const { createApiKeyAuth } = require('./middleware/auth');
 const { DEFAULT_ENVIRONMENT, parseEnvironment } = require('./schemas/flagSchemas');
 
-const getFlagVersion = async (redis, key, environment = DEFAULT_ENVIRONMENT, logger = console) => {
+const getFlagVersion = async (
+  redis,
+  key,
+  environment = DEFAULT_ENVIRONMENT,
+  logger = console
+) => {
   if (redis?.disabled) return '0';
 
   try {
     return (await redis.get(`flag-version:${environment}:${key}`)) || '0';
-  } catch (error) {
-    logger.warn(`cache version read failed for flag '${environment}/${key}':`, error.message);
+  } catch {
+    logger.warn('Cache version read failed');
     return '0';
   }
 };
@@ -26,18 +31,25 @@ const getEnvironmentVersion = async (redis, environment, logger = console) => {
 
   try {
     return (await redis.get(`env-version:${environment}`)) || '0';
-  } catch (error) {
-    logger.warn(`env version read failed for '${environment}':`, error.message);
+  } catch {
+    logger.warn('Environment version read failed');
     return '0';
   }
 };
 
 const buildSnapshot = (flags, environment) => {
   const projected = flags
-    .map((flag) => ({ key: flag.key, enabled: flag.enabled, rules: flag.rules ?? null }))
+    .map((flag) => ({
+      key: flag.key,
+      enabled: flag.enabled,
+      rules: flag.rules ?? null,
+    }))
     .sort((a, b) => a.key.localeCompare(b.key));
 
-  const checksum = crypto.createHash('sha256').update(JSON.stringify(projected)).digest('hex');
+  const checksum = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(projected))
+    .digest('hex');
 
   return {
     environment,
@@ -59,7 +71,11 @@ const REASONS = {
 };
 
 const rolloutBucket = (key, userId) => {
-  const hash = crypto.createHash('sha256').update(`${key}:${userId}`).digest('hex');
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${key}:${userId}`)
+    .digest('hex');
+
   return parseInt(hash.substring(0, 8), 16) % 100;
 };
 
@@ -82,21 +98,38 @@ const evaluateFlag = ({ flag, key, userId, environment }) => {
     return { key, enabled: false, reason: REASONS.DISABLED, trace };
   }
 
-  const rolloutPercentage = flag.rules ? flag.rules.rolloutPercentage : undefined;
+  const rolloutPercentage = flag.rules
+    ? flag.rules.rolloutPercentage
+    : undefined;
 
-  if (!flag.rules || Object.keys(flag.rules).length === 0 || rolloutPercentage === undefined) {
-    return { key, enabled: true, reason: REASONS.ENABLED_NO_RULES, trace };
+  if (
+    !flag.rules ||
+    Object.keys(flag.rules).length === 0 ||
+    rolloutPercentage === undefined
+  ) {
+    return {
+      key,
+      enabled: true,
+      reason: REASONS.ENABLED_NO_RULES,
+      trace,
+    };
   }
 
   trace.rule = 'rolloutPercentage';
   trace.rolloutPercentage = rolloutPercentage;
 
   if (!userId) {
-    return { key, enabled: false, reason: REASONS.CONTEXT_REQUIRED, trace };
+    return {
+      key,
+      enabled: false,
+      reason: REASONS.CONTEXT_REQUIRED,
+      trace,
+    };
   }
 
   const bucket = rolloutBucket(key, userId);
   trace.bucket = bucket;
+
   const enabled = bucket < rolloutPercentage;
 
   return {
@@ -116,7 +149,10 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
 
   app.use(cors());
   app.use(helmet());
-  app.use(morgan('dev'));
+
+  // Avoid logging full URLs that may contain user IDs in query parameters.
+  app.use(morgan(':method :status :response-time ms'));
+
   app.use(express.json({ limit: '1mb' }));
 
   app.get('/health', (req, res) => {
@@ -124,71 +160,88 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
   });
 
   app.get('/healthz', async (req, res) => {
+    let postgres = 'unknown';
+    let redisStatus = 'unknown';
+
+    // Check PostgreSQL independently.
     try {
       await prisma.$queryRaw`SELECT 1`;
-
-      if (redis?.disabled) {
-        return res.json({
-          status: 'ok',
-          postgres: 'connected',
-          redis: 'disabled',
-        });
-      }
-
-      const pong = await redis.ping();
-
-      return res.json({
-        status: 'ok',
-        postgres: 'connected',
-        redis: pong,
-      });
-    } catch (error) {
-      logger.error('Healthz check failed:', error);
-      return res.status(500).json({
-        status: 'error',
-        error: error.message,
-        details: {
-          postgres:
-            error.message.toLowerCase().includes('database') ||
-            error.message.toLowerCase().includes('prisma')
-              ? 'error'
-              : 'unknown',
-          redis: error.message.toLowerCase().includes('redis') ? 'error' : 'unknown',
-        },
-      });
+      postgres = 'connected';
+    } catch {
+      logger.error('PostgreSQL health check failed');
+      postgres = 'error';
     }
+
+    // Redis being intentionally disabled is not a health failure.
+    if (redis?.disabled) {
+      redisStatus = 'disabled';
+    } else {
+      try {
+        const pong = await redis.ping();
+        redisStatus = pong;
+      } catch {
+        logger.error('Redis health check failed');
+        redisStatus = 'error';
+      }
+    }
+
+    const healthy =
+      postgres === 'connected' &&
+      (redisStatus === 'disabled' || redisStatus === 'PONG');
+
+    return res.status(healthy ? 200 : 500).json({
+      status: healthy ? 'ok' : 'error',
+      ...(healthy ? {} : { error: 'Health check failed' }),
+      postgres,
+      redis: redisStatus,
+    });
   });
 
   app.get('/flags/:key', async (req, res) => {
     const { key } = req.params;
-    const userId = typeof req.query.userId === 'string' ? req.query.userId : undefined;
+
+    const userId =
+      typeof req.query.userId === 'string'
+        ? req.query.userId
+        : undefined;
+
     const explain = req.query.explain === 'true';
     const environmentResult = parseEnvironment(req.query.environment);
 
     if (!environmentResult.success) {
-      return res.status(400).json({ message: environmentResult.error });
+      return res.status(400).json({
+        message: environmentResult.error,
+      });
     }
 
     const { environment } = environmentResult;
 
     try {
-      const version = await getFlagVersion(redis, key, environment, logger);
-      const cacheKey = `flag:${environment}:${key}:v${version}:${userId || 'anonymous'}`;
+      const version = await getFlagVersion(
+        redis,
+        key,
+        environment,
+        logger
+      );
+
+      const cacheKey =
+        `flag:${environment}:${key}:v${version}:${userId || 'anonymous'}`;
 
       if (!explain) {
         try {
           if (!redis?.disabled && redis.status === 'ready') {
             const cachedResult = await redis.get(cacheKey);
+
             if (cachedResult) {
-              logger.log(`[cache hit] for key: ${cacheKey}`);
+              logger.log('Cache hit');
               return res.status(200).json(JSON.parse(cachedResult));
             }
           }
-        } catch (cacheError) {
-          logger.warn(`cache read failed for ${cacheKey}:`, cacheError.message);
+        } catch {
+          logger.warn('Cache read failed');
         }
 
-        logger.log(`[cache miss] for key: ${cacheKey}`);
+        logger.log('Cache miss');
       }
 
       const flag = await prisma.featureFlag.findUnique({
@@ -200,22 +253,40 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
         },
       });
 
-      const { trace, ...result } = evaluateFlag({ flag, key, userId, environment });
+      const { trace, ...result } = evaluateFlag({
+        flag,
+        key,
+        userId,
+        environment,
+      });
 
       if (!explain) {
         try {
           if (!redis?.disabled && redis.status === 'ready') {
-            await redis.set(cacheKey, JSON.stringify(result), 'EX', 60);
+            await redis.set(
+              cacheKey,
+              JSON.stringify(result),
+              'EX',
+              60
+            );
           }
-        } catch (cacheError) {
-          logger.warn(`cache write failed for ${cacheKey}:`, cacheError.message);
+        } catch {
+          logger.warn('Cache write failed');
         }
       }
 
-      return res.status(200).json(explain ? { ...result, trace } : result);
-    } catch (error) {
-      logger.error(`error evaluating flag '${key}':`, error);
-      return res.status(200).json({ key, enabled: false, reason: 'error' });
+      return res
+        .status(200)
+        .json(explain ? { ...result, trace } : result);
+    } catch {
+      logger.error('Flag evaluation failed');
+
+      // Preserve the existing response behavior.
+      return res.status(200).json({
+        key,
+        enabled: false,
+        reason: REASONS.ERROR,
+      });
     }
   });
 
@@ -223,51 +294,71 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
     const environmentResult = parseEnvironment(req.params.envKey);
 
     if (!environmentResult.success) {
-      return res.status(400).json({ message: environmentResult.error });
+      return res.status(400).json({
+        message: environmentResult.error,
+      });
     }
 
     const { environment } = environmentResult;
 
     try {
-      const version = await getEnvironmentVersion(redis, environment, logger);
+      const version = await getEnvironmentVersion(
+        redis,
+        environment,
+        logger
+      );
+
       const cacheKey = `snapshot:${environment}:v${version}`;
 
       try {
         if (!redis?.disabled && redis.status === 'ready') {
           const cached = await redis.get(cacheKey);
+
           if (cached) {
             return res.status(200).json(JSON.parse(cached));
           }
         }
-      } catch (cacheError) {
-        logger.warn(`snapshot cache read failed for ${cacheKey}:`, cacheError.message);
+      } catch {
+        logger.warn('Snapshot cache read failed');
       }
 
-      const flags = await prisma.featureFlag.findMany({ where: { environment } });
+      const flags = await prisma.featureFlag.findMany({
+        where: { environment },
+      });
+
       const snapshot = buildSnapshot(flags, environment);
 
       try {
         if (!redis?.disabled && redis.status === 'ready') {
-          await redis.set(cacheKey, JSON.stringify(snapshot), 'EX', 60);
+          await redis.set(
+            cacheKey,
+            JSON.stringify(snapshot),
+            'EX',
+            60
+          );
         }
-      } catch (cacheError) {
-        logger.warn(`snapshot cache write failed for ${cacheKey}:`, cacheError.message);
+      } catch {
+        logger.warn('Snapshot cache write failed');
       }
 
       return res.status(200).json(snapshot);
-    } catch (error) {
-      logger.error(`error building snapshot for '${environment}':`, error);
-      return res.status(500).json({ message: 'error building snapshot' });
+    } catch {
+      logger.error('Snapshot generation failed');
+
+      return res.status(500).json({
+        message: 'error building snapshot',
+      });
     }
   });
 
-  // Admin API key verification that does not query PostgreSQL.
+  // Admin API key verification does not query PostgreSQL.
   const verifyKeyRouter = express.Router();
 
   if (!adminApiKey) {
     verifyKeyRouter.get('/', (req, res) => {
       return res.status(503).json({
-        error: 'API key verification is unavailable because ADMIN_API_KEY is not configured.',
+        error:
+          'API key verification is unavailable because ADMIN_API_KEY is not configured.',
       });
     });
   } else {
@@ -280,10 +371,23 @@ const createApp = ({ prisma, redis, adminApiKey, logger = console } = {}) => {
 
   app.use('/admin/verify-key', verifyKeyRouter);
 
-  app.use('/admin/flags', createAdminFlagsRouter({ prisma, redis, adminApiKey, logger }));
-  app.use('/admin/analyze', createAnalyzeApiRouter({ adminApiKey, logger }));
+  app.use(
+    '/admin/flags',
+    createAdminFlagsRouter({ prisma, redis, adminApiKey, logger })
+  );
+
+  app.use(
+    '/admin/analyze',
+    createAnalyzeApiRouter({ adminApiKey, logger })
+  );
 
   return app;
 };
 
-module.exports = { createApp, evaluateFlag, getFlagVersion, buildSnapshot, REASONS };
+module.exports = {
+  createApp,
+  evaluateFlag,
+  getFlagVersion,
+  buildSnapshot,
+  REASONS,
+};
