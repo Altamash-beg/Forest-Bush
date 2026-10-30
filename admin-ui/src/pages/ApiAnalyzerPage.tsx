@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../lib/authContext';
@@ -65,6 +66,8 @@ const exampleNewSpec = `{
   }
 }`;
 
+const MAX_ZIP_SIZE = 10 * 1024 * 1024;
+
 const buttonBase =
   'inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950 disabled:cursor-not-allowed disabled:opacity-60';
 
@@ -76,9 +79,35 @@ export default function ApiAnalyzerPage() {
 
   const [oldSpecText, setOldSpecText] = useState(exampleOldSpec);
   const [newSpecText, setNewSpecText] = useState(exampleNewSpec);
+  const [sourceZip, setSourceZip] = useState<File | null>(null);
   const [result, setResult] = useState<ApiAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleZipSelection = (file: File | undefined) => {
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      toast.error('Please select a ZIP file.');
+      return;
+    }
+
+    if (file.size > MAX_ZIP_SIZE) {
+      toast.error('ZIP file must not exceed 10 MB.');
+      return;
+    }
+
+    setSourceZip(file);
+    setResult(null);
+    setError(null);
+    toast.success('Source ZIP selected successfully.');
+  };
+
+  const removeZip = () => {
+    setSourceZip(null);
+    setResult(null);
+    setError(null);
+  };
 
   const handleAnalyze = async () => {
     setError(null);
@@ -128,6 +157,7 @@ export default function ApiAnalyzerPage() {
         apiKey,
         oldSpec,
         newSpec,
+        sourceZip
       );
 
       setResult(analysis);
@@ -153,6 +183,7 @@ export default function ApiAnalyzerPage() {
   const loadExamples = () => {
     setOldSpecText(exampleOldSpec);
     setNewSpecText(exampleNewSpec);
+    setSourceZip(null);
     setError(null);
     setResult(null);
     toast.success('Example specifications loaded.');
@@ -362,6 +393,117 @@ export default function ApiAnalyzerPage() {
           </section>
         </div>
 
+        {/* Source ZIP upload */}
+        <section
+          aria-labelledby="source-upload-heading"
+          className="rounded-xl border border-gray-700/80 bg-gray-900/70 p-4 sm:p-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3
+                id="source-upload-heading"
+                className="font-semibold text-gray-100"
+              >
+                Source code analysis
+                <span className="ml-2 rounded-md border border-blue-800/70 bg-blue-950/40 px-2 py-1 text-xs font-medium text-blue-300">
+                  Optional
+                </span>
+              </h3>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-400">
+                Upload a ZIP containing your JavaScript or TypeScript project.
+                The analyzer will look for fetch and Axios API calls and
+                identify files that may be affected by breaking changes.
+              </p>
+            </div>
+
+            <span className="shrink-0 text-xs text-gray-500">
+              Maximum size: 10 MB
+            </span>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-dashed border-gray-700 bg-gray-950/60 p-5">
+            <label
+              htmlFor="source-zip"
+              className="flex cursor-pointer flex-col items-center justify-center gap-3 text-center"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-300">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  className="h-6 w-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 16V4m0 0L8 8m4-4 4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"
+                  />
+                </svg>
+              </span>
+
+              <span>
+                <span className="block text-sm font-semibold text-gray-200">
+                  Choose your source ZIP
+                </span>
+                <span className="mt-1 block text-xs text-gray-500">
+                  JavaScript and TypeScript files will be scanned
+                </span>
+              </span>
+
+              <span className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-xs font-semibold text-gray-200 transition-colors hover:bg-gray-700">
+                Browse files
+              </span>
+            </label>
+
+            <input
+              id="source-zip"
+              type="file"
+              accept=".zip,application/zip"
+              className="sr-only"
+              onChange={(event) => {
+                handleZipSelection(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+
+            {sourceZip && (
+              <div className="mt-5 flex flex-col gap-3 rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-xs font-bold text-emerald-300">
+                    ZIP
+                  </span>
+
+                  <div className="min-w-0">
+                    <p className="break-all text-sm font-medium text-gray-200">
+                      {sourceZip.name}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {(sourceZip.size / (1024 * 1024)).toFixed(2)} MB · Ready
+                      to upload
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={removeZip}
+                  className="w-fit rounded-md px-3 py-2 text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/10"
+                >
+                  Remove ZIP
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-gray-500">
+            Supported source extensions: .js, .jsx, .ts and .tsx. Other files
+            are ignored during scanning.
+          </p>
+        </section>
+
         {/* Primary action */}
         <div className="flex flex-col gap-3 border-t border-gray-800 pt-5 sm:flex-row sm:items-center">
           <button
@@ -376,7 +518,7 @@ export default function ApiAnalyzerPage() {
                   aria-hidden="true"
                   className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
                 />
-                Analyzing specifications...
+                Analyzing...
               </>
             ) : (
               'Analyze API changes'
@@ -384,7 +526,9 @@ export default function ApiAnalyzerPage() {
           </button>
 
           <p className="text-xs leading-5 text-gray-500">
-            Analysis compares the contracts and reports detected changes.
+            {sourceZip
+              ? 'OpenAPI comparison and source code scanning will run together.'
+              : 'OpenAPI comparison will run without source code scanning.'}
           </p>
         </div>
 
@@ -450,6 +594,7 @@ export default function ApiAnalyzerPage() {
             </span>
           </div>
 
+          {/* OpenAPI metrics */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {metrics.map((item) => (
               <article
@@ -468,6 +613,7 @@ export default function ApiAnalyzerPage() {
             ))}
           </div>
 
+          {/* Detected changes */}
           <div className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900/50">
             <div className="border-b border-gray-800 px-4 py-4 sm:px-5">
               <h3 className="font-semibold text-gray-100">
@@ -566,6 +712,177 @@ export default function ApiAnalyzerPage() {
             )}
           </div>
 
+          {/* Source code analysis results */}
+          <section
+            aria-labelledby="source-results-heading"
+            className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900/50"
+          >
+            <div className="border-b border-gray-800 px-4 py-4 sm:px-5">
+              <h3
+                id="source-results-heading"
+                className="font-semibold text-gray-100"
+              >
+                Source code impact analysis
+              </h3>
+              <p className="mt-1 text-sm text-gray-400">
+                Potential source files calling endpoints with breaking changes.
+              </p>
+            </div>
+
+            {!result.sourceAnalysis ? (
+              <div className="p-6 text-center">
+                <p className="text-sm font-medium text-gray-300">
+                  Source scanning was not performed.
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Upload a source ZIP file to identify potentially affected
+                  files.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-5 p-4 sm:p-5">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <article className="rounded-lg border border-gray-800 bg-gray-950/60 p-4">
+                    <p className="text-xs font-medium text-gray-400">
+                      Source files scanned
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-gray-100">
+                      {result.sourceAnalysis.totalFilesScanned}
+                    </p>
+                  </article>
+
+                  <article className="rounded-lg border border-gray-800 bg-gray-950/60 p-4">
+                    <p className="text-xs font-medium text-gray-400">
+                      API calls detected
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-blue-300">
+                      {result.sourceAnalysis.totalApiCalls}
+                    </p>
+                  </article>
+
+                  <article className="rounded-lg border border-gray-800 bg-gray-950/60 p-4">
+                    <p className="text-xs font-medium text-gray-400">
+                      Potentially affected files
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-amber-300">
+                      {new Set(
+                        result.sourceAnalysis.affectedFiles.map(
+                        (file) => file.filePath
+                        )
+                      ).size}
+                    </p>
+                  </article>
+                </div>
+
+                {new Set(
+                  result.sourceAnalysis.affectedFiles.map(
+                  (file) => file.filePath
+                  )
+                ).size === 0 ? (
+                  <div className="rounded-lg border border-gray-700 bg-gray-950/40 p-5">
+                    <p className="font-medium text-gray-200">
+                      No matching source calls found
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-gray-400">
+                      The scanner did not find fetch or Axios calls matching
+                      the endpoints with breaking changes. This does not
+                      guarantee that no consumer is affected.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-gray-200">
+                      Potentially affected files
+                    </h4>
+
+                    {result.sourceAnalysis.affectedFiles.map(
+                      (affectedFile, index) => (
+                        <article
+                          key={`${affectedFile.filePath}-${affectedFile.endpoint}-${index}`}
+                          className="rounded-lg border border-gray-800 bg-gray-950/50 p-4"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-gray-500">
+                                Source file
+                              </p>
+                              <code className="mt-1 block break-all text-sm font-semibold text-blue-300">
+                                {affectedFile.filePath}
+                              </code>
+                            </div>
+
+                            <span
+                              className={`w-fit rounded-md border px-2 py-1 text-xs font-semibold uppercase ${
+                                affectedFile.severity === 'error'
+                                  ? 'border-red-800 bg-red-950/50 text-red-200'
+                                  : 'border-amber-800 bg-amber-950/40 text-amber-200'
+                              }`}
+                            >
+                              {affectedFile.severity}
+                            </span>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <span className="rounded-md border border-gray-700 bg-gray-800 px-2 py-1 text-xs font-bold text-gray-200">
+                              {affectedFile.method}
+                            </span>
+
+                            <code className="break-all text-sm text-gray-300">
+                              {affectedFile.endpoint}
+                            </code>
+
+                            <span className="rounded-md bg-gray-800 px-2 py-1 text-xs text-gray-400">
+                              {affectedFile.library}
+                            </span>
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="rounded-lg border border-red-900/50 bg-red-950/20 p-3">
+                              <p className="text-xs font-semibold text-red-300">
+                                Previous value
+                              </p>
+                              <code className="mt-2 block break-all text-sm text-gray-200">
+                                {affectedFile.oldValue}
+                              </code>
+                            </div>
+
+                            <div className="rounded-lg border border-emerald-900/50 bg-emerald-950/20 p-3">
+                              <p className="text-xs font-semibold text-emerald-300">
+                                New value
+                              </p>
+                              <code className="mt-2 block break-all text-sm text-gray-200">
+                                {affectedFile.newValue}
+                              </code>
+                            </div>
+                          </div>
+
+                          <div className="mt-3">
+                            <p className="text-xs font-medium text-gray-500">
+                              Changed response property
+                            </p>
+                            <code className="mt-1 block text-sm text-gray-300">
+                              {affectedFile.changedProperty}
+                            </code>
+                          </div>
+
+                          <div className="mt-3 rounded-lg bg-gray-800/60 p-3">
+                            <p className="text-xs font-semibold text-gray-400">
+                              Why this file may be affected
+                            </p>
+                            <p className="mt-1 break-words text-sm leading-6 text-gray-300">
+                              {affectedFile.reason}
+                            </p>
+                          </div>
+                        </article>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Technical details */}
           <details className="group rounded-xl border border-gray-800 bg-gray-900/50">
             <summary className="cursor-pointer rounded-xl px-4 py-4 text-sm font-medium text-gray-300 hover:bg-gray-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 sm:px-5">
               Technical details
@@ -580,9 +897,10 @@ export default function ApiAnalyzerPage() {
           </details>
 
           <p className="text-xs leading-5 text-gray-500">
-            Release decisions reflect the analyzer&apos;s detected changes.
-            Review the report and your project&apos;s release policy before
-            deploying.
+            Source matches are potential impacts based on detected fetch and
+            Axios calls. They do not prove that a file consumes the changed
+            response property. Review the report and your project's release
+            policy before deploying.
           </p>
         </section>
       )}

@@ -1,6 +1,6 @@
-
 const express = require('express');
 const request = require('supertest');
+const AdmZip = require('adm-zip');
 const { createAnalyzeApiRouter } = require('../../src/routes/analyzeApi');
 
 const createTestApp = (adminApiKey = 'test-secret') => {
@@ -19,6 +19,19 @@ const validSpec = {
   openapi: '3.0.3',
   info: { title: 'Example API', version: '1.0.0' },
   paths: {},
+};
+const createSourceZip = () => {
+  const zip = new AdmZip();
+
+  zip.addFile(
+    'src/users.js',
+    Buffer.from(`
+      fetch('/users/123');
+      axios.get('/users/456');
+    `)
+  );
+
+  return zip.toBuffer();
 };
 
 describe('API analyzer endpoint', () => {
@@ -164,4 +177,82 @@ expect(response.body.report.changes).toHaveLength(0);
       statusCode: '200',
     });
   });
+  it('scans an uploaded ZIP and identifies potentially affected files', async () => {
+  const oldSpec = {
+    openapi: '3.0.3',
+    info: { title: 'Users API', version: '1.0.0' },
+    paths: {
+      '/users/{user_id}': {
+        get: {
+          responses: {
+            '200': {
+              description: 'Successful response',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  const newSpec = {
+    ...oldSpec,
+    info: { title: 'Users API', version: '1.1.0' },
+    paths: {
+      ...oldSpec.paths,
+      '/users/{user_id}': {
+        ...oldSpec.paths['/users/{user_id}'],
+        get: {
+          ...oldSpec.paths['/users/{user_id}'].get,
+          responses: {
+            '200': {
+              ...oldSpec.paths['/users/{user_id}'].get.responses['200'],
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  const response = await request(createTestApp())
+    .post('/admin/analyze')
+    .set('x-api-key', 'test-secret')
+    .field('oldSpec', JSON.stringify(oldSpec))
+    .field('newSpec', JSON.stringify(newSpec))
+    .attach('sourceZip', createSourceZip(), {
+      filename: 'source.zip',
+      contentType: 'application/zip',
+    });
+
+  expect(response.status).toBe(200);
+  expect(response.body.releaseDecision).toBe('BLOCKED');
+
+  expect(response.body.sourceAnalysis).toBeDefined();
+  expect(response.body.sourceAnalysis.totalFilesScanned).toBe(1);
+  expect(response.body.sourceAnalysis.totalApiCalls).toBe(2);
+  expect(response.body.sourceAnalysis.affectedFiles).toHaveLength(2);
+
+  expect(
+    response.body.sourceAnalysis.affectedFiles[0].filePath
+  ).toBe('src/users.js');
+});
 });

@@ -126,8 +126,8 @@ dist/
 Thumbs.db
 Desktop.ini
 
-# Binaries
-api/bin/bin/flyctl
+# Local binaries
+api/bin/
 
 # Terraform local state and variable values
 .terraform/

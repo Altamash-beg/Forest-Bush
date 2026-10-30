@@ -65,6 +65,19 @@ export interface ApiChange {
   statusCode: string;
 }
 
+export interface AffectedFile {
+  filePath: string;
+  endpoint: string;
+  method: string;
+  library: string;
+  changedEndpoint: string;
+  changedProperty: string;
+  oldValue: string;
+  newValue: string;
+  severity: string;
+  reason: string;
+}
+
 export interface ApiAnalysisResult {
   hasBreakingChanges: boolean;
   releaseDecision: 'SAFE' | 'BLOCKED';
@@ -78,6 +91,11 @@ export interface ApiAnalysisResult {
     };
     changes: ApiChange[];
   };
+  sourceAnalysis: {
+    totalFilesScanned: number;
+    totalApiCalls: number;
+    affectedFiles: AffectedFile[];
+  } | null;
 }
 
 export const apiClient = {
@@ -259,33 +277,53 @@ export const apiClient = {
 
   // Method to analyze two OpenAPI specifications.
   analyzeApi: async (
-    apiKey: string,
-    oldSpec: Record<string, unknown>,
-    newSpec: Record<string, unknown>
-  ): Promise<ApiAnalysisResult> => {
-    const response = await fetch(
-      `${apiClient.getApiUrl()}/admin/analyze`,
-      {
-        method: 'POST',
-        headers: apiClient.getHeaders(apiKey),
-        body: JSON.stringify({
-          oldSpec,
-          newSpec,
-        }),
-      }
-    );
+  apiKey: string,
+  oldSpec: Record<string, unknown>,
+  newSpec: Record<string, unknown>,
+  sourceZip?: File | null
+): Promise<ApiAnalysisResult> => {
+  let headers: Record<string, string>;
+  let body: BodyInit;
 
-    if (!response.ok) {
-      const errorData = await response
-        .json()
-        .catch(() => ({}));
+  if (sourceZip) {
+    const formData = new FormData();
 
-      throw new Error(
-        errorData.error ||
-          'Failed to analyze the OpenAPI specifications.'
-      );
+    formData.append('oldSpec', JSON.stringify(oldSpec));
+    formData.append('newSpec', JSON.stringify(newSpec));
+    formData.append('sourceZip', sourceZip);
+
+    headers = {
+      'x-api-key': apiKey,
+    };
+
+    body = formData;
+  } else {
+    headers = apiClient.getHeaders(apiKey);
+
+    body = JSON.stringify({
+      oldSpec,
+      newSpec,
+    });
+  }
+
+  const response = await fetch(
+    `${apiClient.getApiUrl()}/admin/analyze`,
+    {
+      method: 'POST',
+      headers,
+      body,
     }
+  );
 
-    return response.json();
-  },
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+
+    throw new Error(
+      errorData.error ||
+        'Failed to analyze the OpenAPI specifications.'
+    );
+  }
+
+  return response.json();
+}
 };
