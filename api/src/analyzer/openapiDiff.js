@@ -1,4 +1,5 @@
-﻿const fs = require('node:fs');
+﻿
+const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
@@ -19,20 +20,27 @@ const validateSpecPaths = (oldSpecPath, newSpecPath) => {
   return true;
 };
 
-const compareOpenApiSpecs = (
-  oldSpecPath,
-  newSpecPath,
-    oasdiffPath = process.env.OASDIFF_PATH || path.join(
-    process.env.USERPROFILE || process.env.HOME,
-    'Downloads',
-    'oasdiff',
-    'oasdiff.exe'
-  )
-) => {
+const getOasdiffPath = () => {
+  if (process.env.OASDIFF_PATH) {
+    return process.env.OASDIFF_PATH;
+  }
+
+  return path.join(
+    __dirname,
+    '..',
+    '..',
+    'bin',
+    process.platform === 'win32' ? 'oasdiff.exe' : 'oasdiff'
+  );
+};
+
+const compareOpenApiSpecs = (oldSpecPath, newSpecPath, oasdiffPath = getOasdiffPath()) => {
   validateSpecPaths(oldSpecPath, newSpecPath);
 
   if (!fs.existsSync(oasdiffPath)) {
-    throw new Error('oasdiff executable was not found. Check its path.');
+    throw new Error(
+      `oasdiff executable was not found at: ${oasdiffPath}. Check its installation and OASDIFF_PATH configuration.`
+    );
   }
 
   let output = '';
@@ -58,28 +66,27 @@ const compareOpenApiSpecs = (
       .join('\n')
       .trim();
 
+    // oasdiff uses exit code 102 when it cannot load a specification.
     if (error.status === 102) {
       throw new Error(
         `oasdiff could not load an OpenAPI specification: ${output}`
       );
     }
 
-    const hasBreakingChanges =
-      /^\s*error\s+\[[^\]]+\]/m.test(output);
-
-    if (typeof error.status !== 'number' || !hasBreakingChanges) {
+    // Exit code 1 indicates breaking changes in oasdiff.
+    // Preserve the output so the caller can report those changes.
+    if (error.status !== 1) {
       throw new Error(
         `Failed to run oasdiff: ${output || error.message}`
       );
     }
   }
 
-  const hasBreakingChanges =
-    /^\s*error\s+\[/m.test(output || '');
+  const hasBreakingChanges = /^\s*error\s+\[[^\]]+\]/m.test(output);
 
   return {
     hasBreakingChanges,
-    output: (output || '').trim(),
+    output: output.trim(),
   };
 };
 
